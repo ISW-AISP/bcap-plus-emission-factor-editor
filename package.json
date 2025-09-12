@@ -1,0 +1,79 @@
+{
+  "name": "carbon-halo-emission-editor",
+  "version": "1.0.1",
+  "description": "Portable Carbon Halo emission data editor for BCAP+ with automatic history tracking",
+  "main": "main.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build-mac": "electron-builder --mac",
+    "build-win": "electron-builder --win",
+    "build-win-x64": "electron-builder --win --x64",
+    "build-win-arm64": "electron-builder --win --arm64",
+    "build-linux": "electron-builder --linux",
+    "build-linux-x64": "electron-builder --linux --x64",
+    "build-linux-arm64": "electron-builder --linux --arm64",
+    "dist": "electron-builder --publish=never",
+    "version:patch": "node bump-version.js patch",
+    "version:minor": "node bump-version.js minor",
+    "version:major": "node bump-version.js major"
+  },
+  "keywords": [
+    "mongodb",
+    "emissions",
+    "carbon",
+    "data-editor"
+  ],
+  "author": "Carbon Halo",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^24.8.0"
+  },
+  "dependencies": {
+    "mongodb": "^6.3.0"
+  },
+  "build": {
+    "appId": "com.carbonhalo.emission-editor",
+    "productName": "Carbon Halo Emission Editor",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    }
+  }
+}

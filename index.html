@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>MongoDB Emission Data Editor</title>
+<meta content="MongoDB Emission Data Editor" property="og:title"/>
+<meta content="Portable browser-based editor for MongoDB emission lookup data" property="og:description"/>
+<meta content="assets/img_64x64_f02191ed.png" property="og:image"/>
+<meta content="website" property="og:type"/>
+<link href="assets/img_32x32_a3ad1374.png" rel="icon" type="image/png"/>
+<!-- MongoDB Driver -->
+<script src="https://unpkg.com/mongodb@5.9.0/lib/mongodb.js"></script>
+<!-- Papa Parse for CSV -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Font Awesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+        /* Custom styles for MongoDB Emission Data Editor */
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .data-modified {
+            background: linear-gradient(90deg, #fef3c7, #fbbf24);
+        }
+        
+        .nested-level-1 { margin-left: 1rem; }
+        .nested-level-2 { margin-left: 2rem; }
+        .nested-level-3 { margin-left: 3rem; }
+    </style>
+<script>
+            // Electron MongoDB API Integration
+            window.mongoConnected = false;
+            
+            // Initialize MongoDB connection via Electron with credentials
+            window.initMongoDB = async (username, password) => {
+                try {
+                    const result = await window.electronAPI.mongoConnect(username, password);
+                    window.mongoConnected = result.success;
+                    return result;
+                } catch (error) {
+                    console.error('MongoDB connection failed:', error);
+                    window.mongoConnected = false;
+                    return { success: false, message: error.message };
+                }
+            };
+            
+            // Load data from MongoDB collection via Electron
+            window.loadFromMongoDB = async (collectionName) => {
+                try {
+                    const result = await window.electronAPI.mongoLoad(collectionName);
+                    return result;
+                } catch (error) {
+                    console.error('Failed to load data from MongoDB:', error);
+                    return { success: false, message: error.message };
+                }
+            };
+            
+            // Save data to MongoDB with history backup via Electron
+            window.saveToMongoDB = async (collectionName, historyCollectionName, document, originalDocument, username) => {
+                try {
+                    // Check if we need to create history backup
+                    const needsHistory = window.mongoUtils.needsHistoryBackup(originalDocument);
+                    
+                    const result = await window.electronAPI.mongoSave(
+                        collectionName, 
+                        historyCollectionName, 
+                        document, 
+                        originalDocument, 
+                        needsHistory,
+                        username
+                    );
+                    
+                    return result;
+                } catch (error) {
+                    console.error('Save failed:', error);
+                    return { success: false, message: error.message };
+                }
+            };
+            
+            // Check MongoDB connection status
+            window.checkMongoStatus = async () => {
+                try {
+                    const status = await window.electronAPI.mongoStatus();
+                    window.mongoConnected = status.connected;
+                    return status;
+                } catch (error) {
+                    window.mongoConnected = false;
+                    return { connected: false, client: false };
+                }
+            };
+        </script></head>
+<body class="bg-gray-50 min-h-screen">
+<div class="container mx-auto px-4 py-8">
+<!-- Header -->
+<div class="bg-white rounded-lg shadow-md p-6 mb-6">
+<div class="flex items-center justify-between">
+<div>
+<h1 class="text-3xl font-bold text-gray-800 flex items-center">
+<i class="fas fa-database text-green-600 mr-3"></i>
+                        MongoDB Emission Data Editor
+                    </h1>
+<p class="text-gray-600 mt-2">Connect to BCAP_Plus database and edit emission lookup data with automatic history tracking</p>
+                    <div class="mt-3 p-3 bg-blue-50 rounded-lg">
+                        <h4 class="font-medium text-blue-800 mb-2">How to use:</h4>
+                        <ol class="text-sm text-blue-700 space-y-1">
+                            <li>1. Login with your Carbon Halo database credentials</li>
+                            <li>2. Navigate between data categories using the tabs</li>
+                            <li>3. Click "Edit" on any section to modify emission factor values</li>
+                            <li>4. Save changes to update the database</li>
+                            <li>5. Previous versions are automatically saved to history collection</li>
+                        </ol>
+                    </div>
+</div>
+<div class="flex space-x-2">
+<button class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 disabled:opacity-50" disabled="" id="exportBtn">
+<i class="fas fa-download mr-2"></i>Export JSON
+                    </button>
+<button class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 disabled:opacity-50" disabled="" id="exportCsvBtn">
+<i class="fas fa-file-csv mr-2"></i>Export CSV
+                    </button>
+<button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200" id="closeAppBtn">
+<i class="fas fa-times-circle mr-2"></i>Close App
+                    </button>
+</div>
+</div>
+</div>
+<!-- Login Panel -->
+<div class="bg-white rounded-lg shadow-md p-6 mb-6" id="connectionPanel">
+<h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+<i class="fas fa-sign-in-alt text-blue-600 mr-2"></i>
+                Carbon Halo Database Login
+            </h2>
+<div class="max-w-md mx-auto">
+<div class="mb-4">
+<label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+<input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" id="username" placeholder="Enter your database username" type="text" autocomplete="username"/>
+</div>
+<div class="mb-6">
+<label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+<input class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" id="password" placeholder="Enter your database password" type="password" autocomplete="current-password"/>
+</div>
+<div class="flex flex-col items-center space-y-4">
+<button class="bg-green-500 hover:bg-green-600 text-white px-8 py-2 rounded-lg transition-colors duration-200 w-full" id="connectBtn">
+<i class="fas fa-sign-in-alt mr-2"></i>Login to Database
+                </button>
+<div class="text-sm text-gray-600 text-center" id="connectionStatus"></div>
+</div>
+</div>
+</div>
+<!-- Category Navigation -->
+<div class="bg-white rounded-lg shadow-md p-6 mb-6 hidden" id="categoryNav">
+<h3 class="text-lg font-semibold text-gray-800 mb-4">Data Categories</h3>
+<div class="flex flex-wrap gap-2" id="categoryTabs"></div>
+</div>
+<!-- Data Display -->
+<div class="hidden" id="dataContainer">
+<div class="bg-white rounded-lg shadow-md p-6">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-xl font-semibold text-gray-800" id="currentCategory"></h3>
+<div class="flex space-x-2">
+<!-- Save buttons removed - save happens directly in edit modal -->
+</div>
+</div>
+<div class="space-y-4" id="dataContent"></div>
+</div>
+</div>
+<!-- Edit Modal -->
+<div class="fixed inset-0 bg-black bg-opacity-50 hidden z-50" id="editModal">
+<div class="flex items-center justify-center min-h-screen p-4">
+<div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-screen overflow-y-auto">
+<div class="p-6">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-lg font-semibold text-gray-800">Edit Data</h3>
+<button class="text-gray-400 hover:text-gray-600" id="closeModalBtn">
+<i class="fas fa-times text-xl"></i>
+</button>
+</div>
+<div class="space-y-4" id="editForm"></div>
+<div class="flex justify-end space-x-2 mt-6">
+<button class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200" id="cancelEditBtn">
+                                Cancel
+                            </button>
+<button class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200" id="saveEditBtn">
+                                Save
+                            </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+        class EmissionDataEditor {
+            constructor() {
+                this.data = null;
+                this.originalData = null;
+                this.currentCategory = null;
+                this.currentDocument = null;
+                this.modifiedItems = new Set();
+                this.currentEditPath = null;
+                this.currentEditData = null;
+                this.isSaving = false;
+                this.currentUsername = null; // Store the logged-in username
+                
+                this.initializeEventListeners();
+            }
+
+
+            initializeEventListeners() {
+                document.getElementById('connectBtn').addEventListener('click', () => this.connectToMongoDB());
+                
+                // Add Enter key support for login
+                document.getElementById('username').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('password').focus();
+                    }
+                });
+                
+                document.getElementById('password').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.connectToMongoDB();
+                    }
+                });
+                document.getElementById('exportBtn').addEventListener('click', () => this.exportData());
+                document.getElementById('exportCsvBtn').addEventListener('click', () => this.exportCSV());
+                document.getElementById('closeAppBtn').addEventListener('click', () => this.closeApp());
+                // Save buttons removed - save happens directly in edit modal
+                document.getElementById('closeModalBtn').addEventListener('click', () => this.closeEditModal());
+                document.getElementById('cancelEditBtn').addEventListener('click', () => this.closeEditModal());
+                
+                const saveBtn = document.getElementById('saveEditBtn');
+                if (saveBtn) {
+                    console.log('Save button found, attaching listener');
+                    // Remove any existing listeners first
+                    saveBtn.onclick = null;
+                    const newSaveBtn = saveBtn.cloneNode(true);
+                    saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+                    
+                    // Add single event listener
+                    newSaveBtn.addEventListener('click', () => {
+                        console.log('Save button clicked!');
+                        this.saveEdit();
+                    });
+                } else {
+                    console.error('Save button not found!');
+                }
+            }
+
+
+            async connectToMongoDB() {
+                const username = document.getElementById('username').value.trim();
+                const password = document.getElementById('password').value.trim();
+                
+                if (!username || !password) {
+                    this.showStatus('Please enter your username and password', 'error');
+                    return;
+                }
+
+                this.showStatus('Connecting to Carbon Halo database...', 'info');
+                
+                try {
+                    // Store username for later use
+                    this.currentUsername = username;
+                    
+                    // Initialize MongoDB connection with credentials
+                    const connectResult = await window.initMongoDB(username, password);
+                    
+                    if (!connectResult.success) {
+                        throw new Error(connectResult.message);
+                    }
+                    
+                    // Load data from Emission_Lookup collection
+                    const loadResult = await window.loadFromMongoDB('Emission_Lookup');
+                    
+                    if (!loadResult.success) {
+                        throw new Error('Failed to load emission data: ' + loadResult.message);
+                    }
+                    
+                    this.processEmissionLookupData(loadResult.data);
+                    this.showStatus('Login successful! Emission data loaded.', 'success');
+                    
+                    // Hide the login panel and show the data
+                    document.getElementById('connectionPanel').style.display = 'none';
+                    
+                } catch (error) {
+                    console.error('Database login failed:', error);
+                    this.showStatus(`Login failed: ${error.message}. Please check your credentials.`, 'error');
+                }
+            }
+        
+
+            processEmissionLookupData(mongoData) {
+                if (!mongoData || !Array.isArray(mongoData) || mongoData.length === 0) {
+                    this.showStatus('No Emission_Lookup document found', 'error');
+                    return;
+                }
+
+                // Convert ObjectId buffers to string format for consistency
+                this.data = mongoData.map(doc => {
+                    if (doc._id && doc._id.buffer) {
+                        // Convert buffer to hex string
+                        const buffer = doc._id.buffer;
+                        let hexString = '';
+                        if (buffer instanceof Uint8Array) {
+                            for (let i = 0; i < buffer.length; i++) {
+                                hexString += buffer[i].toString(16).padStart(2, '0');
+                            }
+                        } else if (typeof buffer === 'object') {
+                            // Handle serialized buffer format
+                            for (let i = 0; i < 12; i++) {
+                                if (buffer[i] !== undefined) {
+                                    hexString += buffer[i].toString(16).padStart(2, '0');
+                                }
+                            }
+                        }
+                        doc._id = { $oid: hexString };
+                    }
+                    return doc;
+                });
+                
+                this.originalData = JSON.parse(JSON.stringify(this.data));
+                
+                console.log('Loaded documents:', this.data.length);
+                console.log('Document structure:', this.data.map(d => ({
+                    _id: d._id,
+                    category: Object.keys(d).find(k => k !== '_id' && k !== 'last_updated' && k !== 'version')
+                })));
+                
+                this.showDataInterface();
+            }
+
+            generateObjectId() {
+                return Math.random().toString(16).substr(2, 24);
+            }
+
+            showDataInterface() {
+                document.getElementById('categoryNav').classList.remove('hidden');
+                document.getElementById('dataContainer').classList.remove('hidden');
+                document.getElementById('exportBtn').disabled = false;
+                document.getElementById('exportCsvBtn').disabled = false;
+                
+                this.renderCategoryTabs();
+                const categories = this.getCategories();
+                if (categories.length > 0) {
+                    this.showCategory(categories[0]);
+                }
+            }
+
+            getCategories() {
+                const categories = [];
+                this.data.forEach(doc => {
+                    // Find the main category key (not _id, last_updated, or version)
+                    const categoryKey = Object.keys(doc).find(key => 
+                        key !== '_id' && key !== 'last_updated' && key !== 'version'
+                    );
+                    if (categoryKey) {
+                        categories.push(categoryKey);
+                    }
+                });
+                return categories;
+            }
+
+            renderCategoryTabs() {
+                const categories = this.getCategories();
+                const tabsContainer = document.getElementById('categoryTabs');
+                tabsContainer.innerHTML = '';
+
+                categories.forEach(category => {
+                    const tab = document.createElement('button');
+                    tab.className = 'px-4 py-2 rounded-lg transition-colors duration-200 capitalize';
+                    tab.textContent = category.replace(/_/g, ' ');
+                    tab.addEventListener('click', () => this.showCategory(category));
+                    tabsContainer.appendChild(tab);
+                });
+
+                this.updateTabStyles();
+            }
+
+            updateTabStyles() {
+                const tabs = document.querySelectorAll('#categoryTabs button');
+                tabs.forEach(tab => {
+                    const category = tab.textContent.replace(/ /g, '_');
+                    if (category === this.currentCategory) {
+                        tab.className = 'px-4 py-2 rounded-lg bg-blue-500 text-white transition-colors duration-200 capitalize';
+                    } else {
+                        tab.className = 'px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors duration-200 capitalize';
+                    }
+                });
+            }
+
+            showCategory(category) {
+                this.currentCategory = category;
+                document.getElementById('currentCategory').textContent = category.replace(/_/g, ' ').toUpperCase();
+                this.updateTabStyles();
+                this.renderCategoryData();
+            }
+
+            renderCategoryData() {
+                const container = document.getElementById('dataContent');
+                container.innerHTML = '';
+
+                const categoryData = this.getCategoryData(this.currentCategory);
+                if (!categoryData) {
+                    container.innerHTML = '<p class="text-gray-500">No data found for this category.</p>';
+                    return;
+                }
+
+                Object.entries(categoryData).forEach(([key, value]) => {
+                    const item = this.createDataItem(key, value, [this.currentCategory, key]);
+                    container.appendChild(item);
+                });
+            }
+
+            getCategoryData(category) {
+                // Find the document that contains this category
+                const doc = this.data.find(d => d[category]);
+                if (doc) {
+                    // Store reference to the document for later use
+                    this.currentDocument = doc;
+                    return doc[category];
+                }
+                return null;
+            }
+
+            createDataItem(key, value, path, level = 0) {
+                const item = document.createElement('div');
+                item.className = `border border-gray-200 rounded-lg p-4 ${level > 0 ? `nested-level-${Math.min(level, 3)}` : ''}`;
+                
+                const pathStr = path.join('.');
+                if (this.modifiedItems.has(pathStr)) {
+                    item.classList.add('data-modified');
+                }
+
+                const header = document.createElement('div');
+                header.className = 'flex items-center justify-between mb-2';
+
+                const title = document.createElement('h4');
+                title.className = `font-semibold text-gray-800 capitalize ${level > 0 ? 'text-sm' : 'text-lg'}`;
+                title.textContent = key.replace(/_/g, ' ');
+
+                const actions = document.createElement('div');
+                actions.className = 'flex space-x-2';
+
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    const expandBtn = document.createElement('button');
+                    expandBtn.className = 'text-blue-500 hover:text-blue-700 text-sm';
+                    expandBtn.innerHTML = '<i class="fas fa-chevron-down"></i>';
+                    expandBtn.addEventListener('click', () => this.toggleExpand(item));
+                    actions.appendChild(expandBtn);
+                }
+
+                const editBtn = document.createElement('button');
+                editBtn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200';
+                editBtn.innerHTML = '<i class="fas fa-edit mr-1"></i>Edit';
+                editBtn.addEventListener('click', () => this.openEditModal(path, value));
+                actions.appendChild(editBtn);
+
+                header.appendChild(title);
+                header.appendChild(actions);
+                item.appendChild(header);
+
+                const content = document.createElement('div');
+                content.className = 'space-y-2';
+
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    Object.entries(value).forEach(([subKey, subValue]) => {
+                        if (typeof subValue === 'object' && subValue !== null) {
+                            const subItem = this.createDataItem(subKey, subValue, [...path, subKey], level + 1);
+                            content.appendChild(subItem);
+                        } else {
+                            const valueItem = document.createElement('div');
+                            // Don't display version, last_updated, and updated_by as regular fields
+                            if (subKey === 'version' || subKey === 'last_updated' || subKey === 'updated_by') {
+                                // Skip or style differently - these are metadata
+                                valueItem.className = 'flex justify-between items-center py-1 px-2 bg-blue-50 rounded text-xs italic';
+                            } else {
+                                valueItem.className = 'flex justify-between items-center py-1 px-2 bg-gray-50 rounded';
+                            }
+                            valueItem.innerHTML = `
+                                <span class="text-sm font-medium text-gray-600">${subKey.replace(/_/g, ' ')}:</span>
+                                <span class="text-sm text-gray-800">${this.formatValue(subValue)}</span>
+                            `;
+                            content.appendChild(valueItem);
+                        }
+                    });
+                } else {
+                    const valueItem = document.createElement('div');
+                    valueItem.className = 'py-1 px-2 bg-gray-50 rounded';
+                    valueItem.innerHTML = `<span class="text-sm text-gray-800">${this.formatValue(value)}</span>`;
+                    content.appendChild(valueItem);
+                }
+
+                item.appendChild(content);
+                return item;
+            }
+
+            formatValue(value) {
+                if (typeof value === 'number') {
+                    // For very small numbers (emission factors), preserve more decimal places
+                    if (value < 0.001 && value > 0) {
+                        return value.toFixed(8).replace(/\.?0+$/, ''); // Up to 8 decimals, remove trailing zeros
+                    }
+                    // For small numbers, preserve up to 6 decimal places  
+                    else if (value < 1 && value > 0) {
+                        return value.toFixed(6).replace(/\.?0+$/, ''); // Up to 6 decimals, remove trailing zeros
+                    }
+                    // For larger numbers, use standard formatting
+                    else {
+                        return value.toLocaleString(undefined, { 
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 3 
+                        });
+                    }
+                }
+                if (typeof value === 'string' && value.startsWith('http')) {
+                    return `<a href="${value}" target="_blank" class="text-blue-500 hover:underline">${value}</a>`;
+                }
+                return String(value);
+            }
+
+            toggleExpand(item) {
+                const content = item.querySelector('.space-y-2');
+                const icon = item.querySelector('.fa-chevron-down, .fa-chevron-up');
+                
+                if (content.style.display === 'none') {
+                    content.style.display = 'block';
+                    icon.className = 'fas fa-chevron-up';
+                } else {
+                    content.style.display = 'none';
+                    icon.className = 'fas fa-chevron-down';
+                }
+            }
+
+            openEditModal(path, data) {
+                console.log('Opening edit modal');
+                console.log('Path:', path);
+                console.log('Data:', data);
+                
+                this.currentEditPath = path;
+                this.currentEditData = JSON.parse(JSON.stringify(data));
+                
+                const modal = document.getElementById('editModal');
+                const form = document.getElementById('editForm');
+                
+                // Update modal title with item name
+                const modalTitle = modal.querySelector('h3');
+                const itemName = path[path.length - 1];
+                if (modalTitle) {
+                    modalTitle.textContent = `Edit Data: ${itemName.charAt(0).toUpperCase() + itemName.slice(1).replace(/_/g, ' ')}`;
+                }
+                
+                form.innerHTML = '';
+                this.createEditForm(data, form, []);
+                
+                modal.classList.remove('hidden');
+                console.log('Modal opened with currentEditPath:', this.currentEditPath);
+            }
+
+            createEditForm(data, container, path) {
+                if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+                    Object.entries(data).forEach(([key, value]) => {
+                        // Skip metadata fields in edit form
+                        if (key === 'version' || key === 'last_updated' || key === 'updated_by') {
+                            return;
+                        }
+                        
+                        // Build the full path from the current edit path
+                        const fieldPath = [...this.currentEditPath, ...path, key];
+                        const fieldContainer = document.createElement('div');
+                        fieldContainer.className = 'mb-4';
+
+                        const label = document.createElement('label');
+                        label.className = 'block text-sm font-medium text-gray-700 mb-2';
+                        label.textContent = key.replace(/_/g, ' ');
+
+                        if (typeof value === 'object' && value !== null) {
+                            fieldContainer.appendChild(label);
+                            const nestedContainer = document.createElement('div');
+                            nestedContainer.className = 'ml-4 p-3 border border-gray-200 rounded';
+                            this.createEditForm(value, nestedContainer, [...path, key]);
+                            fieldContainer.appendChild(nestedContainer);
+                        } else {
+                            const input = document.createElement('input');
+                            const inputType = this.getInputType(key, value);
+                            input.type = inputType.type;
+                            
+                            // Handle various falsy values more robustly
+                            let displayValue = '';
+                            if (value !== null && value !== undefined && value !== '') {
+                                displayValue = String(value);
+                            }
+                            input.value = displayValue;
+                            input.className = 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500';
+                            input.dataset.path = fieldPath.join('.');
+                            
+                            console.log('Creating input for path:', fieldPath.join('.'));
+                            
+                            // Add validation attributes
+                            if (inputType.min !== undefined) input.min = inputType.min;
+                            if (inputType.max !== undefined) input.max = inputType.max;
+                            if (inputType.step !== undefined) input.step = inputType.step;
+                            if (inputType.pattern) input.pattern = inputType.pattern;
+                            if (inputType.title) input.title = inputType.title;
+                            
+                            // Add validation event listener
+                            input.addEventListener('input', (e) => this.validateField(e.target, key));
+                            input.addEventListener('blur', (e) => this.validateField(e.target, key));
+                            
+                            fieldContainer.appendChild(label);
+                            fieldContainer.appendChild(input);
+                            
+                            // Add validation message container
+                            const validationMsg = document.createElement('div');
+                            validationMsg.className = 'text-sm text-red-600 mt-1 hidden';
+                            validationMsg.dataset.validationFor = fieldPath.join('.');
+                            fieldContainer.appendChild(validationMsg);
+                        }
+
+                        container.appendChild(fieldContainer);
+                    });
+                } else {
+                    const input = document.createElement('input');
+                    const inputType = this.getInputType(path[path.length - 1], data);
+                    input.type = inputType.type;
+                    input.value = data !== null && data !== undefined ? data : '';
+                    input.className = 'w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500';
+                    const fullPath = [...this.currentEditPath, ...path];
+                    input.dataset.path = fullPath.join('.');
+                    
+                    // Add validation attributes
+                    if (inputType.min !== undefined) input.min = inputType.min;
+                    if (inputType.max !== undefined) input.max = inputType.max;
+                    if (inputType.step !== undefined) input.step = inputType.step;
+                    if (inputType.pattern) input.pattern = inputType.pattern;
+                    if (inputType.title) input.title = inputType.title;
+                    
+                    container.appendChild(input);
+                }
+            }
+
+            getInputType(fieldName, value) {
+                const field = fieldName.toLowerCase();
+                
+                // Text fields first - these should always be text regardless of content
+                if (field.includes('unit') || field.includes('source') || field.includes('note') || field.includes('date') || field.includes('category')) {
+                    return {
+                        type: 'text'
+                    };
+                }
+                
+                // Emission factors should be positive numbers with decimal precision
+                if ((field.includes('emission_factor') && !field.includes('unit') && !field.includes('source')) || 
+                    (field.includes('factor') && !field.includes('source'))) {
+                    return {
+                        type: 'number',
+                        min: 0,
+                        step: 0.0001,
+                        title: 'Emission factors must be positive numbers'
+                    };
+                }
+                
+                // Energy content factors should be positive
+                if (field.includes('energy_content')) {
+                    return {
+                        type: 'number',
+                        min: 0,
+                        step: 0.1,
+                        title: 'Energy content must be positive'
+                    };
+                }
+                
+                // Conversion factors can be decimal (including string values like "0.2")
+                if (field.includes('conversion')) {
+                    return {
+                        type: 'number',
+                        min: 0,
+                        step: 0.0001,
+                        title: 'Conversion factors must be positive'
+                    };
+                }
+                
+                // Note: source and unit fields are already handled in the text fields section above
+                
+                // Distance values should be positive integers
+                if (field === 'distance') {
+                    return {
+                        type: 'number',
+                        min: 0,
+                        step: 1,
+                        title: 'Distance must be a positive number'
+                    };
+                }
+                
+                // Version should be positive integer
+                if (field === 'version') {
+                    return {
+                        type: 'number',
+                        min: 1,
+                        step: 1,
+                        title: 'Version must be a positive integer'
+                    };
+                }
+                
+                // Default based on value type
+                if (typeof value === 'number') {
+                    return {
+                        type: 'number',
+                        step: 'any'
+                    };
+                }
+                
+                return { type: 'text' };
+            }
+
+            validateField(input, fieldName) {
+                const validationMsg = document.querySelector(`[data-validation-for="${input.dataset.path}"]`);
+                const value = input.value.trim();
+                let isValid = true;
+                let errorMessage = '';
+                
+                // Check if field is required and empty
+                if (fieldName.includes('emission_factor') && !value) {
+                    isValid = false;
+                    errorMessage = 'Emission factor is required';
+                }
+                
+                // Validate positive numbers for factors
+                if (input.type === 'number' && value && parseFloat(value) < 0) {
+                    isValid = false;
+                    errorMessage = 'Value must be positive';
+                }
+                
+                // Validate URLs
+                if (input.type === 'url' && value && !value.match(/^https?:\/\/.+/)) {
+                    isValid = false;
+                    errorMessage = 'Please enter a valid URL';
+                }
+                
+                // Show/hide validation message
+                if (validationMsg) {
+                    if (isValid) {
+                        validationMsg.classList.add('hidden');
+                        input.classList.remove('border-red-500');
+                        input.classList.add('border-gray-300');
+                    } else {
+                        validationMsg.textContent = errorMessage;
+                        validationMsg.classList.remove('hidden');
+                        input.classList.remove('border-gray-300');
+                        input.classList.add('border-red-500');
+                    }
+                }
+                
+                return isValid;
+            }
+
+            async saveEdit() {
+                console.log('saveEdit called');
+                
+                // Prevent duplicate saves
+                if (this.isSaving) {
+                    console.log('Already saving, ignoring duplicate call');
+                    return;
+                }
+                this.isSaving = true;
+                
+                console.log('currentEditPath:', this.currentEditPath);
+                
+                const form = document.getElementById('editForm');
+                const inputs = form.querySelectorAll('input');
+                
+                // Validate all inputs before saving
+                let allValid = true;
+                inputs.forEach(input => {
+                    const fieldName = input.dataset.path.split('.').pop();
+                    if (!this.validateField(input, fieldName)) {
+                        allValid = false;
+                    }
+                });
+                
+                if (!allValid) {
+                    this.showStatus('Please fix validation errors before saving', 'error');
+                    this.isSaving = false;
+                    return;
+                }
+                
+                this.showStatus('Saving changes to MongoDB...', 'info');
+                
+                try {
+                    // Get the current category and find the document
+                    const categoryName = this.currentEditPath[0];
+                    console.log('Looking for category:', categoryName);
+                    console.log('Available documents:', this.data.map(d => Object.keys(d)));
+                    
+                    const document = this.data.find(doc => doc[categoryName]);
+                    
+                    if (!document || !document._id) {
+                        console.error('Document not found. Category:', categoryName);
+                        console.error('Available data:', this.data);
+                        throw new Error(`Cannot find document with category: ${categoryName}`);
+                    }
+                    
+                    console.log('Found document:', document._id);
+                    
+                    // Find the original document to use for history
+                    const originalDoc = this.originalData.find(orig => {
+                        // Compare ObjectIds properly
+                        const origId = orig._id?.$oid || orig._id;
+                        const docId = document._id?.$oid || document._id;
+                        return origId === docId;
+                    });
+                    
+                    if (!originalDoc) {
+                        console.error('Original document not found');
+                        console.error('Document _id:', document._id);
+                        console.error('Original data:', this.originalData.map(d => d._id));
+                        throw new Error('Cannot find original document for history');
+                    }
+                    
+                    console.log('Found original document');
+                    
+                    // Apply changes from the form inputs directly to the document
+                    inputs.forEach(input => {
+                        const path = input.dataset.path.split('.');
+                        const value = input.type === 'number' ? 
+                            (input.value ? parseFloat(input.value) : null) : 
+                            input.value;
+                        console.log('Setting value:', path.join('.'), '=', value);
+                        this.setNestedValue(document, path, value);
+                    });
+                    
+                    // Update metadata at the item level (e.g., transport_methods.road_freight)
+                    // Only add version tracking at item level, never at document level
+                    if (this.currentEditPath.length >= 2) {
+                        // We're editing a specific item within a category
+                        const categoryPath = this.currentEditPath[0];
+                        const itemPath = this.currentEditPath[1];
+                        
+                        // Add last_updated, version, and updated_by to the specific item
+                        if (document[categoryPath] && document[categoryPath][itemPath]) {
+                            const item = document[categoryPath][itemPath];
+                            const currentVersion = item.version || 0; // Start from 0 if no version exists
+                            // Format timestamp in AEST (UTC+10 or UTC+11 for daylight saving)
+                            const aestDate = new Date().toLocaleString('en-AU', {
+                                timeZone: 'Australia/Sydney',
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                                hour12: false
+                            });
+                            item.last_updated = aestDate + ' AEST';
+                            item.version = currentVersion + 1; // Increment version
+                            item.updated_by = this.currentUsername || 'unknown'; // Add username
+                            console.log(`Updated version tracking for ${categoryPath}.${itemPath} to version ${item.version} by ${item.updated_by}`);
+                        }
+                    }
+                    // No document-level metadata - version tracking is only at item level
+                    
+                    // Check if we need history backup
+                    const needsHistory = window.mongoUtils.needsHistoryBackup(originalDoc);
+                    
+                    console.log('Saving document:', {
+                        _id: document._id,
+                        category: categoryName,
+                        keys: Object.keys(document),
+                        needsHistory: needsHistory
+                    });
+                    
+                    // Save to MongoDB - send the complete document as-is
+                    const saveResult = await window.electronAPI.mongoSave(
+                        'Emission_Lookup',
+                        'Emission_Lookup_History',
+                        document,        // Current document with changes
+                        originalDoc,     // Original for history/comparison
+                        needsHistory,
+                        this.currentUsername
+                    );
+                    
+                    console.log('Save result:', saveResult);
+                    
+                    if (saveResult.success) {
+                        console.log('Save successful, updating UI');
+                        
+                        // Update original data to match current state
+                        const origIndex = this.originalData.findIndex(orig => {
+                            const origId = orig._id?.$oid || orig._id;
+                            const docId = document._id?.$oid || document._id;
+                            return origId === docId;
+                        });
+                        
+                        if (origIndex !== -1) {
+                            this.originalData[origIndex] = JSON.parse(JSON.stringify(document));
+                        }
+                        
+                        // Refresh the display
+                        this.renderCategoryData();
+                        this.closeEditModal();
+                        
+                        // History is always created now
+                        this.showStatus('Changes saved successfully (Previous version saved to history)', 'success');
+                    } else {
+                        console.error('Save failed with result:', saveResult);
+                        throw new Error(saveResult.message || 'Unknown save error');
+                    }
+                    
+                } catch (error) {
+                    console.error('Save failed with exception:', error);
+                    console.error('Error stack:', error.stack);
+                    this.showStatus(`Save failed: ${error.message}`, 'error');
+                } finally {
+                    // Reset the saving flag
+                    this.isSaving = false;
+                }
+            }
+
+            setNestedValue(obj, path, value) {
+                let current = obj;
+                for (let i = 0; i < path.length - 1; i++) {
+                    if (!current[path[i]]) current[path[i]] = {};
+                    current = current[path[i]];
+                }
+                current[path[path.length - 1]] = value;
+            }
+            
+            getNestedValue(obj, path) {
+                let current = obj;
+                for (const key of path) {
+                    if (current && typeof current === 'object' && key in current) {
+                        current = current[key];
+                    } else {
+                        return undefined;
+                    }
+                }
+                return current;
+            }
+
+
+            closeEditModal() {
+                document.getElementById('editModal').classList.add('hidden');
+                this.currentEditPath = null;
+                this.currentEditData = null;
+            }
+
+            // Save buttons removed - no longer needed
+
+            async saveChanges() {
+                this.showStatus('Saving changes to MongoDB...', 'info');
+                
+                try {
+                    if (!window.mongoConnected) {
+                        throw new Error('No MongoDB connection. Please connect to MongoDB first.');
+                    }
+                    
+                    const currentDateTime = new Date().toISOString();
+                    let totalHistoryRecords = 0;
+                    let totalUpdatedRecords = 0;
+                    
+                    // Process each modified document
+                    for (const doc of this.data) {
+                        const pathKey = doc.category;
+                        
+                        if (this.modifiedItems.has(pathKey)) {
+                            // Find original document for history comparison
+                            const originalDoc = this.originalData.find(orig => 
+                                orig._id.$oid === doc._id.$oid && orig.category === doc.category
+                            );
+                            
+                            // Create updated document with timestamp
+                            const updatedDoc = {
+                                ...doc,
+                                last_updated: currentDateTime,
+                                version: (doc.version || 1) + 1
+                            };
+                            
+                            // Save using our MongoDB utility function
+                            const saveResult = await window.saveToMongoDB(
+                                'Emission_Lookup',
+                                'Emission_Lookup_History', 
+                                updatedDoc,
+                                originalDoc
+                            );
+                            
+                            if (saveResult.success) {
+                                totalHistoryRecords += saveResult.history_records_created || 0;
+                                totalUpdatedRecords += 1;
+                                
+                                // Update local data
+                                const localIndex = this.data.findIndex(d => 
+                                    d._id.$oid === doc._id.$oid && d.category === doc.category
+                                );
+                                if (localIndex !== -1) {
+                                    this.data[localIndex] = updatedDoc;
+                                }
+                            } else {
+                                throw new Error(`Failed to save ${doc.category}: ${saveResult.message}`);
+                            }
+                        }
+                    }
+                    
+                    // Update local state
+                    this.originalData = JSON.parse(JSON.stringify(this.data));
+                    this.modifiedItems.clear();
+                    this.updateSaveButtons();
+                    this.renderCategoryData();
+                    
+                    const message = `Changes saved successfully! Updated ${totalUpdatedRecords} records. ${totalHistoryRecords} historical records created.`;
+                    this.showStatus(message, 'success');
+                    
+                } catch (error) {
+                    console.error('Save failed:', error);
+                    this.showStatus(`Save failed: ${error.message}`, 'error');
+                }
+            }
+
+            revertChanges() {
+                this.data = JSON.parse(JSON.stringify(this.originalData));
+                this.modifiedItems.clear();
+                this.updateSaveButtons();
+                this.renderCategoryData();
+                this.showStatus('Changes reverted', 'info');
+            }
+
+
+            exportData() {
+                const dataStr = JSON.stringify(this.data, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'emission_data.json';
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                this.showStatus('Data exported successfully', 'success');
+            }
+
+            exportCSV() {
+                const flatData = this.flattenData();
+                const csv = Papa.unparse(flatData);
+                
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'emission_data.csv';
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                this.showStatus('CSV exported successfully', 'success');
+            }
+
+            flattenData() {
+                const result = [];
+                
+                this.data.forEach(doc => {
+                    Object.entries(doc).forEach(([category, categoryData]) => {
+                        if (category === '_id' || category === 'category' || category === 'last_updated') return;
+                        
+                        this.flattenObject(categoryData, result, { category });
+                    });
+                });
+                
+                return result;
+            }
+
+            flattenObject(obj, result, prefix = {}) {
+                Object.entries(obj).forEach(([key, value]) => {
+                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                        this.flattenObject(value, result, { ...prefix, [key]: key });
+                    } else {
+                        result.push({
+                            ...prefix,
+                            item: key,
+                            field: key,
+                            value: value
+                        });
+                    }
+                });
+            }
+
+            showStatus(message, type) {
+                const statusEl = document.getElementById('connectionStatus');
+                statusEl.textContent = message;
+                statusEl.className = `text-sm ${
+                    type === 'success' ? 'text-green-600' : 
+                    type === 'error' ? 'text-red-600' : 
+                    'text-blue-600'
+                }`;
+                
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                }, 3000);
+            }
+            
+            async closeApp() {
+                if (confirm('Are you sure you want to close the application?')) {
+                    try {
+                        // Disconnect from MongoDB first
+                        if (window.mongoConnected) {
+                            await window.electronAPI.mongoDisconnect();
+                        }
+                        // Request the main process to close the app
+                        await window.electronAPI.closeApp();
+                    } catch (error) {
+                        console.error('Error closing app:', error);
+                        // Try to close anyway
+                        window.close();
+                    }
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new EmissionDataEditor();
+        });
+    </script>
+</body>
+</html>
