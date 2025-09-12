@@ -118,12 +118,46 @@ The application works with MongoDB documents in this structure:
 }
 ```
 
-## 🔄 Updates
+## 🔄 Version Management
 
+### Semantic Versioning
+This project follows semantic versioning (MAJOR.MINOR.PATCH):
+- **PATCH** (1.0.x): Bug fixes, minor updates, documentation changes
+- **MINOR** (1.x.0): New features, non-breaking changes, UI improvements
+- **MAJOR** (x.0.0): Breaking changes, major refactoring, database schema changes
+
+### Updating Version Numbers
+**Important**: Update the version number before pushing to GitHub.
+
+Use the npm scripts to bump version:
+```bash
+# Bug fixes and minor updates
+npm run version:patch    # 1.0.0 -> 1.0.1
+
+# New features
+npm run version:minor    # 1.0.0 -> 1.1.0  
+
+# Breaking changes
+npm run version:major    # 1.0.0 -> 2.0.0
+```
+
+Or directly use the bump script:
+```bash
+node bump-version.js [patch|minor|major]
+```
+
+### Build and Release Process
+1. Update version: `npm run version:patch` (or minor/major)
+2. Commit changes: `git add . && git commit -m "Bump version to x.x.x"`
+3. Push to GitHub: `git push`
+4. Build release: `npm run build`
+5. The version number will be included in the output filename (e.g., `Carbon-Halo-Emission-Editor-1.0.1.dmg`)
+
+### Application Updates
 To update the application:
-1. Build new version: `npm run build`
-2. Distribute new app files to users
-3. Users replace old app with new one
+1. Download the latest release with the new version number
+2. Replace the old app with the new version
+3. All user data is stored in MongoDB, so no data migration is needed
 
 ## 📞 Support
 
