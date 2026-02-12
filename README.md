@@ -53,10 +53,14 @@ npm run build-linux  # Linux only
 - URL validation for source links
 - Unit format validation
 
+### ✅ **Export Options**
+- **JSON**: Raw data export for programmatic use
+- **CSV**: Flat tabular export for spreadsheets
+- **HTML Reference**: Formatted, self-contained reference document with collapsible sections, scope badges, per-row audit data, and print-friendly styles — generated dynamically from live database data
+
 ### ✅ **User Experience**
 - Category-based navigation (fuels, packaging, transport, etc.)
 - Modal editing with validation feedback
-- Export functionality (JSON/CSV)
 - Professional desktop app interface
 
 ## 🔧 Usage
