@@ -29,7 +29,8 @@ npm install
 npm start
 
 # Build for distribution
-npm run build        # All platforms
+npm run build-all    # All platforms (Mac, Windows, Linux)
+npm run build        # Current platform only
 npm run build-mac    # Mac only
 npm run build-win    # Windows only
 npm run build-linux  # Linux only
@@ -154,7 +155,7 @@ node bump-version.js [patch|minor|major]
 1. Update version: `npm run version:patch` (or minor/major)
 2. Commit changes: `git add . && git commit -m "Bump version to x.x.x"`
 3. Push to GitHub: `git push`
-4. Build release: `npm run build`
+4. Build release: `npm run build-all`
 5. The version number will be included in the output filename (e.g., `Carbon-Halo-Emission-Editor-1.0.1.dmg`)
 
 ### Application Updates
