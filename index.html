@@ -7,9 +7,9 @@
 <title>MongoDB Emission Data Editor</title>
 <meta content="MongoDB Emission Data Editor" property="og:title"/>
 <meta content="Portable browser-based editor for MongoDB emission lookup data" property="og:description"/>
-<meta content="assets/img_64x64_f02191ed.png" property="og:image"/>
+<meta content="assets/icon.png" property="og:image"/>
 <meta content="website" property="og:type"/>
-<link href="assets/img_32x32_a3ad1374.png" rel="icon" type="image/png"/>
+<link href="assets/icon.png" rel="icon" type="image/png"/>
 <!-- MongoDB Driver -->
 <script src="https://unpkg.com/mongodb@5.9.0/lib/mongodb.js"></script>
 <!-- Papa Parse for CSV -->
@@ -107,7 +107,7 @@
 <div class="flex items-center justify-between">
 <div>
 <h1 class="text-3xl font-bold text-gray-800 flex items-center">
-<i class="fas fa-database text-green-600 mr-3"></i>
+<img src="assets/icon.png" alt="Carbon Halo" class="w-10 h-10 mr-3" />
                         MongoDB Emission Data Editor
                     </h1>
 <p class="text-gray-600 mt-2">Connect to BCAP_Plus database and edit emission lookup data with automatic history tracking</p>
@@ -128,6 +128,9 @@
                     </button>
 <button class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 disabled:opacity-50" disabled="" id="exportCsvBtn">
 <i class="fas fa-file-csv mr-2"></i>Export CSV
+                    </button>
+<button class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 disabled:opacity-50" disabled="" id="exportHtmlBtn">
+<i class="fas fa-file-code mr-2"></i>Export HTML Reference
                     </button>
 <button class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200" id="closeAppBtn">
 <i class="fas fa-times-circle mr-2"></i>Close App
@@ -234,6 +237,7 @@
                 });
                 document.getElementById('exportBtn').addEventListener('click', () => this.exportData());
                 document.getElementById('exportCsvBtn').addEventListener('click', () => this.exportCSV());
+                document.getElementById('exportHtmlBtn').addEventListener('click', () => this.exportReferenceHTML());
                 document.getElementById('closeAppBtn').addEventListener('click', () => this.closeApp());
                 // Save buttons removed - save happens directly in edit modal
                 document.getElementById('closeModalBtn').addEventListener('click', () => this.closeEditModal());
@@ -349,6 +353,7 @@
                 document.getElementById('dataContainer').classList.remove('hidden');
                 document.getElementById('exportBtn').disabled = false;
                 document.getElementById('exportCsvBtn').disabled = false;
+                document.getElementById('exportHtmlBtn').disabled = false;
                 
                 this.renderCategoryTabs();
                 const categories = this.getCategories();
@@ -1064,33 +1069,635 @@
                 this.showStatus('CSV exported successfully', 'success');
             }
 
-            flattenData() {
-                const result = [];
-                
-                this.data.forEach(doc => {
-                    Object.entries(doc).forEach(([category, categoryData]) => {
-                        if (category === '_id' || category === 'category' || category === 'last_updated') return;
-                        
-                        this.flattenObject(categoryData, result, { category });
-                    });
-                });
-                
-                return result;
+            // ========== HTML Reference Export ==========
+
+            _htmlEscape(str) {
+                if (str === null || str === undefined) return '';
+                return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             }
 
-            flattenObject(obj, result, prefix = {}) {
-                Object.entries(obj).forEach(([key, value]) => {
-                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                        this.flattenObject(value, result, { ...prefix, [key]: key });
+            _formatNum(val) {
+                if (val === null || val === undefined || val === '') return '-';
+                const n = Number(val);
+                if (isNaN(n)) return this._htmlEscape(String(val));
+                if (n === 0) return '0';
+                if (Math.abs(n) < 0.001 && n !== 0) return n.toFixed(8).replace(/\.?0+$/, '');
+                if (Math.abs(n) < 1 && n !== 0) return n.toFixed(6).replace(/\.?0+$/, '');
+                return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+            }
+
+            _titleCase(str) {
+                return String(str).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            }
+
+            _metaLine(item) {
+                const v = item.version ?? '-';
+                const u = item.last_updated ?? '-';
+                const b = item.updated_by ?? '-';
+                return `<div class="meta"><strong>Version:</strong> ${this._htmlEscape(String(v))} | <strong>Updated:</strong> ${this._htmlEscape(String(u))} | <strong>By:</strong> ${this._htmlEscape(String(b))}</div>`;
+            }
+
+            _auditCells(item) {
+                const v = item.version ?? '-';
+                const u = item.last_updated ?? '-';
+                const b = item.updated_by ?? '-';
+                return `<td>${this._htmlEscape(String(v))}</td><td>${this._htmlEscape(String(u))}</td><td>${this._htmlEscape(String(b))}</td>`;
+            }
+
+            _renderFuelsSection(fuelsData) {
+                let html = '';
+                for (const [fuelName, fuel] of Object.entries(fuelsData)) {
+                    html += `<div class="category-section">`;
+                    html += `<h3><span class="category-toggle"></span>${this._titleCase(fuelName)}</h3>`;
+                    html += `<div class="category-content">`;
+
+                    // Properties table
+                    html += `<table><tr><th>Property</th><th>Value</th></tr>`;
+
+                    if (fuel.energy_content_factor !== undefined) {
+                        const eUnit = fuel.energy_unit || '';
+                        const fUnit = fuel.fuel_unit || '';
+                        html += `<tr><td>Energy Content Factor</td><td class="numeric">${this._formatNum(fuel.energy_content_factor)} ${this._htmlEscape(eUnit)}/${this._htmlEscape(fUnit)}</td></tr>`;
+                    }
+                    if (fuel.form_unit !== undefined) {
+                        html += `<tr><td>Form Unit</td><td>${this._htmlEscape(fuel.form_unit)}</td></tr>`;
+                    }
+                    if (fuel.form_to_fuel_conversion_factor !== undefined) {
+                        const fUnit = fuel.fuel_unit || '';
+                        const formUnit = fuel.form_unit || '';
+                        html += `<tr><td>Form-to-Fuel Conversion Factor</td><td class="numeric">${this._formatNum(fuel.form_to_fuel_conversion_factor)} ${this._htmlEscape(fUnit)}/${this._htmlEscape(formUnit)}</td></tr>`;
+                    }
+                    if (fuel.km_to_kWh_conversion_factor !== undefined) {
+                        html += `<tr><td>km to kWh Conversion Factor</td><td class="numeric">${this._formatNum(fuel.km_to_kWh_conversion_factor)}</td></tr>`;
+                    }
+                    if (fuel.scope2_CO2_emission_factor !== undefined) {
+                        const efUnit = fuel.emission_factor_unit || '';
+                        html += `<tr><td>Scope 2 CO<sub>2</sub> Emission Factor</td><td class="numeric">${this._formatNum(fuel.scope2_CO2_emission_factor)} ${this._htmlEscape(efUnit)}</td></tr>`;
+                    }
+                    if (fuel.emission_factor_unit !== undefined && fuel.scope2_CO2_emission_factor === undefined) {
+                        html += `<tr><td>Emission Factor Unit</td><td>${this._htmlEscape(fuel.emission_factor_unit)}</td></tr>`;
+                    }
+                    html += `</table>`;
+
+                    // Emission factors table (only for combustion fuels)
+                    const hasMobileStationary = fuel.mobile || fuel.stationary;
+                    const emissionRows = [];
+
+                    if (fuel.scope1_CO2_emission_factor !== undefined)
+                        emissionRows.push({ name: 'CO<sub>2</sub>', scope: 'Scope 1', context: hasMobileStationary ? 'All' : null, value: fuel.scope1_CO2_emission_factor });
+                    if (hasMobileStationary) {
+                        if (fuel.mobile) {
+                            if (fuel.mobile.scope1_CH4_emission_factor !== undefined)
+                                emissionRows.push({ name: 'CH<sub>4</sub>', scope: 'Scope 1', context: 'Mobile', value: fuel.mobile.scope1_CH4_emission_factor });
+                            if (fuel.mobile.scope1_N2O_emission_factor !== undefined)
+                                emissionRows.push({ name: 'N<sub>2</sub>O', scope: 'Scope 1', context: 'Mobile', value: fuel.mobile.scope1_N2O_emission_factor });
+                        }
+                        if (fuel.stationary) {
+                            if (fuel.stationary.scope1_CH4_emission_factor !== undefined)
+                                emissionRows.push({ name: 'CH<sub>4</sub>', scope: 'Scope 1', context: 'Stationary', value: fuel.stationary.scope1_CH4_emission_factor });
+                            if (fuel.stationary.scope1_N2O_emission_factor !== undefined)
+                                emissionRows.push({ name: 'N<sub>2</sub>O', scope: 'Scope 1', context: 'Stationary', value: fuel.stationary.scope1_N2O_emission_factor });
+                        }
                     } else {
-                        result.push({
-                            ...prefix,
-                            item: key,
-                            field: key,
-                            value: value
-                        });
+                        if (fuel.scope1_CH4_emission_factor !== undefined)
+                            emissionRows.push({ name: 'CH<sub>4</sub>', scope: 'Scope 1', context: null, value: fuel.scope1_CH4_emission_factor });
+                        if (fuel.scope1_N2O_emission_factor !== undefined)
+                            emissionRows.push({ name: 'N<sub>2</sub>O', scope: 'Scope 1', context: null, value: fuel.scope1_N2O_emission_factor });
+                    }
+                    if (fuel.scope3_CO2_emission_factor !== undefined)
+                        emissionRows.push({ name: 'CO<sub>2</sub>', scope: 'Scope 3', context: hasMobileStationary ? 'All' : null, value: fuel.scope3_CO2_emission_factor });
+
+                    if (emissionRows.length > 0) {
+                        const efUnit = fuel.emission_factor_unit || '';
+                        const hasContext = emissionRows.some(r => r.context !== null);
+                        html += `<table><tr><th>Emission Factor</th><th>Scope</th>`;
+                        if (hasContext) html += `<th>Context</th>`;
+                        html += `<th>Value (${this._htmlEscape(efUnit)})</th></tr>`;
+                        for (const row of emissionRows) {
+                            html += `<tr><td>${row.name}</td><td>${row.scope}</td>`;
+                            if (hasContext) html += `<td>${row.context || 'All'}</td>`;
+                            html += `<td class="numeric">${this._formatNum(row.value)}</td></tr>`;
+                        }
+                        html += `</table>`;
+                    }
+
+                    // Source note for electric vehicles
+                    if (fuel.km_to_kWh_source) {
+                        html += `<p class="note">Source: ${this._htmlEscape(fuel.km_to_kWh_source)}</p>`;
+                    }
+
+                    html += this._metaLine(fuel);
+                    html += `</div></div>`;
+                }
+                return html;
+            }
+
+            _renderElectricitySection(elecData) {
+                let html = '';
+                // Separate state factors from location_types and national_average
+                const stateKeys = [];
+                let nationalAvg = null;
+                let locationTypes = null;
+                let source = '';
+
+                for (const [key, val] of Object.entries(elecData)) {
+                    if (key === 'location_types') { locationTypes = val; continue; }
+                    if (key === 'national_average') { nationalAvg = val; if (val.source) source = val.source; continue; }
+                    if (typeof val === 'object' && val !== null && val.scope2_emission_factor !== undefined) {
+                        stateKeys.push(key);
+                        if (val.source && !source) source = val.source;
+                    }
+                }
+
+                // State factors table
+                html += `<div class="category-section">`;
+                html += `<h3><span class="category-toggle"></span>State/Territory Emission Factors</h3>`;
+                html += `<div class="category-content">`;
+                html += `<table>`;
+                html += `<tr><th>State/Territory</th><th>Scope 2 Factor (t CO2-e/kWh)</th><th>T&amp;D Losses (t CO2-e/kWh)</th><th>Version</th><th>Last Updated</th><th>Updated By</th></tr>`;
+
+                for (const key of stateKeys) {
+                    const s = elecData[key];
+                    html += `<tr><td>${this._htmlEscape(key)}</td>`;
+                    html += `<td class="numeric">${this._formatNum(s.scope2_emission_factor)}</td>`;
+                    html += `<td class="numeric">${this._formatNum(s.transmission_distribution_losses)}</td>`;
+                    html += this._auditCells(s);
+                    html += `</tr>`;
+                }
+                if (nationalAvg) {
+                    html += `<tr style="font-weight:bold;"><td>National Average</td>`;
+                    html += `<td class="numeric">${this._formatNum(nationalAvg.scope2_emission_factor)}</td>`;
+                    html += `<td class="numeric">${this._formatNum(nationalAvg.transmission_distribution_losses)}</td>`;
+                    html += this._auditCells(nationalAvg);
+                    html += `</tr>`;
+                }
+                html += `</table>`;
+                if (source) {
+                    html += `<p class="meta"><strong>Source:</strong> <span class="source-link">${this._htmlEscape(source)}</span></p>`;
+                }
+                html += `</div></div>`;
+
+                // Location types table
+                if (locationTypes) {
+                    html += `<div class="category-section">`;
+                    html += `<h3><span class="category-toggle"></span>Location Type Conversion Factors</h3>`;
+                    html += `<div class="category-content">`;
+                    html += `<p class="note">Used to estimate electricity consumption from floor area when actual usage data is unavailable.</p>`;
+                    html += `<table><tr><th>Location Type</th><th>Conversion Factor (kWh/sqm)</th></tr>`;
+                    for (const [loc, locData] of Object.entries(locationTypes)) {
+                        const factor = typeof locData === 'object' ? locData.conversion_factor : locData;
+                        html += `<tr><td>${this._htmlEscape(loc)}</td><td class="numeric">${this._formatNum(factor)}</td></tr>`;
+                    }
+                    html += `</table></div></div>`;
+                }
+
+                return html;
+            }
+
+            _renderPackagingSection(data) {
+                let html = `<div class="category-section">`;
+                html += `<h3><span class="category-toggle"></span>Packaging Materials</h3>`;
+                html += `<div class="category-content">`;
+                html += `<table>`;
+                html += `<tr><th>Material</th><th>Scope 3 CO<sub>2</sub> Factor</th><th>Source</th><th>Version</th><th>Last Updated</th><th>Updated By</th></tr>`;
+                for (const [name, item] of Object.entries(data)) {
+                    const unit = item.unit || '';
+                    html += `<tr><td>${this._titleCase(name)}</td>`;
+                    html += `<td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)} ${this._htmlEscape(unit)}</td>`;
+                    html += `<td class="source-link">${this._htmlEscape(item.source || '-')}</td>`;
+                    html += this._auditCells(item);
+                    html += `</tr>`;
+                }
+                html += `</table></div></div>`;
+                return html;
+            }
+
+            _renderTransportSection(data) {
+                let html = '';
+                // Split into passenger and freight based on unit
+                const passenger = [];
+                const freight = [];
+                for (const [name, item] of Object.entries(data)) {
+                    if (typeof item !== 'object' || item === null) continue;
+                    const unit = (item.unit || '').toLowerCase();
+                    if (unit.includes('tonne-km')) {
+                        freight.push([name, item]);
+                    } else {
+                        passenger.push([name, item]);
+                    }
+                }
+
+                const renderTable = (title, items) => {
+                    let t = `<div class="category-section">`;
+                    t += `<h3><span class="category-toggle"></span>${title}</h3>`;
+                    t += `<div class="category-content">`;
+                    t += `<table>`;
+                    t += `<tr><th>Transport Method</th><th>Scope 3 CO<sub>2</sub> Factor</th><th>Unit</th><th>Source</th><th>Version</th><th>Last Updated</th><th>Updated By</th></tr>`;
+                    for (const [name, item] of items) {
+                        t += `<tr><td>${this._titleCase(name)}</td>`;
+                        t += `<td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)}</td>`;
+                        t += `<td>${this._htmlEscape(item.unit || '')}</td>`;
+                        t += `<td class="source-link">${this._htmlEscape(item.source || '-')}</td>`;
+                        t += this._auditCells(item);
+                        t += `</tr>`;
+                    }
+                    t += `</table></div></div>`;
+                    return t;
+                };
+
+                if (passenger.length > 0) html += renderTable('Passenger / Vehicle Transport', passenger);
+                if (freight.length > 0) html += renderTable('Freight Transport', freight);
+                return html;
+            }
+
+            _renderTravelSection(data) {
+                let html = '';
+                // Group travel items into sub-categories
+                const flights = [];
+                const ground = [];
+                const publicTransport = [];
+                const accommodation = [];
+                const meals = [];
+                const other = [];
+
+                for (const [name, item] of Object.entries(data)) {
+                    if (typeof item !== 'object' || item === null) continue;
+                    if (name.includes('flight')) flights.push([name, item]);
+                    else if (name.includes('car_') || name.includes('hybrid') || name.includes('rideshare')) ground.push([name, item]);
+                    else if (name.includes('train') || name.includes('bus') || name.includes('ferry') || name === 'bike') publicTransport.push([name, item]);
+                    else if (name.includes('accommodation')) accommodation.push([name, item]);
+                    else if (name.includes('meal')) meals.push([name, item]);
+                    else other.push([name, item]);
+                }
+
+                const renderTravelTable = (title, items, extraHeaders = []) => {
+                    let t = `<div class="category-section">`;
+                    t += `<h3><span class="category-toggle"></span>${title}</h3>`;
+                    t += `<div class="category-content">`;
+                    t += `<table><tr><th>${title === 'Air Travel' ? 'Flight Type' : title === 'Accommodation' ? 'Type' : title === 'Meals' ? 'Meal Type' : 'Vehicle Type'}</th>`;
+                    t += `<th>Scope 3 Factor</th>`;
+                    for (const h of extraHeaders) t += `<th>${h}</th>`;
+                    t += `<th>Source</th><th>Version</th><th>Last Updated</th><th>Updated By</th></tr>`;
+                    for (const [name, item] of items) {
+                        t += `<tr><td>${this._titleCase(name)}</td>`;
+                        const unit = item.unit || '';
+                        t += `<td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)} ${this._htmlEscape(unit)}</td>`;
+                        if (extraHeaders.includes('Distance Threshold')) {
+                            if (item.distance) {
+                                const prefix = name.includes('long_haul') ? '&ge; ' : '&le; ';
+                                t += `<td>${prefix}${Number(item.distance).toLocaleString()} km</td>`;
+                            } else {
+                                t += `<td>-</td>`;
+                            }
+                        }
+                        t += `<td class="source-link">${this._htmlEscape(item.source || '-')}</td>`;
+                        t += this._auditCells(item);
+                        t += `</tr>`;
+                    }
+                    t += `</table></div></div>`;
+                    return t;
+                };
+
+                if (flights.length > 0) html += renderTravelTable('Air Travel', flights, ['Distance Threshold']);
+                if (ground.length > 0) html += renderTravelTable('Ground Transport', ground);
+                if (publicTransport.length > 0) {
+                    let t = `<div class="category-section">`;
+                    t += `<h3><span class="category-toggle"></span>Public Transport</h3>`;
+                    t += `<div class="category-content">`;
+                    t += `<table><tr><th>Mode</th><th>Scope 3 Factor</th><th>Source</th><th>Version</th><th>Last Updated</th><th>Updated By</th></tr>`;
+                    for (const [name, item] of publicTransport) {
+                        t += `<tr><td>${this._titleCase(name)}</td>`;
+                        t += `<td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)} ${this._htmlEscape(item.unit || '')}</td>`;
+                        t += `<td class="source-link">${this._htmlEscape(item.source || '-')}</td>`;
+                        t += this._auditCells(item);
+                        t += `</tr>`;
+                    }
+                    t += `</table></div></div>`;
+                    html += t;
+                }
+                if (accommodation.length > 0) html += renderTravelTable('Accommodation', accommodation);
+                if (meals.length > 0) html += renderTravelTable('Meals', meals);
+
+                // Work from home and other single items
+                for (const [name, item] of other) {
+                    html += `<div class="category-section">`;
+                    html += `<h3><span class="category-toggle"></span>${this._titleCase(name)}</h3>`;
+                    html += `<div class="category-content">`;
+                    html += `<table><tr><th>Property</th><th>Value</th></tr>`;
+                    html += `<tr><td>Scope 3 CO<sub>2</sub> Emission Factor</td><td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)} ${this._htmlEscape(item.unit || '')}</td></tr>`;
+                    if (item.source) html += `<tr><td>Source</td><td>${this._htmlEscape(item.source)}</td></tr>`;
+                    html += `</table>`;
+                    html += this._metaLine(item);
+                    html += `</div></div>`;
+                }
+
+                return html;
+            }
+
+            _renderWasteSection(data) {
+                let html = `<div class="category-section">`;
+                html += `<h3><span class="category-toggle"></span>Waste Types</h3>`;
+                html += `<div class="category-content">`;
+                html += `<table>`;
+                html += `<tr><th>Waste Type</th><th>Scope 3 Factor</th><th>Conversion Factor</th><th>Note</th><th>Source</th><th>Version</th><th>Last Updated</th><th>Updated By</th></tr>`;
+                for (const [name, item] of Object.entries(data)) {
+                    if (typeof item !== 'object' || item === null) continue;
+                    const unit = item.unit || '';
+                    html += `<tr><td>${this._titleCase(name)}</td>`;
+                    html += `<td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)} ${this._htmlEscape(unit)}</td>`;
+                    html += `<td class="numeric">${item.conversion_factor !== null && item.conversion_factor !== undefined ? this._formatNum(item.conversion_factor) : '-'}</td>`;
+                    html += `<td>${this._htmlEscape(item.note || '')}</td>`;
+                    html += `<td class="source-link">${this._htmlEscape(item.source || '-')}</td>`;
+                    html += this._auditCells(item);
+                    html += `</tr>`;
+                }
+                html += `</table></div></div>`;
+                return html;
+            }
+
+            _renderResourcesSection(data) {
+                let html = '';
+                for (const [name, item] of Object.entries(data)) {
+                    if (typeof item !== 'object' || item === null) continue;
+                    html += `<div class="category-section">`;
+                    html += `<h3><span class="category-toggle"></span>${this._titleCase(name)}</h3>`;
+                    html += `<div class="category-content">`;
+                    html += `<table><tr><th>Property</th><th>Value</th></tr>`;
+                    html += `<tr><td>Scope 3 CO<sub>2</sub> Emission Factor</td><td class="numeric">${this._formatNum(item.scope3_CO2_emission_factor)} ${this._htmlEscape(item.unit || '')}</td></tr>`;
+                    if (item.source) html += `<tr><td>Source</td><td class="source-link">${this._htmlEscape(item.source)}</td></tr>`;
+                    html += `</table>`;
+                    html += this._metaLine(item);
+                    html += `</div></div>`;
+                }
+                return html;
+            }
+
+            _renderSuppliersSection(data) {
+                let html = `<div class="category-section">`;
+                html += `<h3><span class="category-toggle"></span>Supplier Categories</h3>`;
+                html += `<div class="category-content">`;
+                html += `<p class="note">Spend-based emission factors using EEIO (Environmentally Extended Input-Output) methodology. Emissions per 2022 USD.</p>`;
+                html += `<table>`;
+                html += `<tr><th>Supplier Category</th><th>NAICS Emissions Category</th><th>Factor (kg CO2-e / 2022 USD)</th></tr>`;
+                for (const [name, item] of Object.entries(data)) {
+                    if (typeof item !== 'object' || item === null) continue;
+                    const cat = item.emissionsCategory || item['emissions_category'] || '-';
+                    const factor = item['Emissions per 2022 USD'] ?? item['emissions_per_2022_usd'] ?? '-';
+                    html += `<tr><td>${this._htmlEscape(name)}</td>`;
+                    html += `<td>${this._htmlEscape(cat)}</td>`;
+                    html += `<td class="numeric">${this._formatNum(factor)}</td></tr>`;
+                }
+                html += `</table></div></div>`;
+                return html;
+            }
+
+            _renderFinancialSection(data) {
+                let html = `<div class="category-section">`;
+                html += `<h3><span class="category-toggle"></span>Consumer Price Index Adjustment</h3>`;
+                html += `<div class="category-content">`;
+                html += `<p class="note">Used to adjust spend-based supplier emission factors from base year (2022 USD) to reporting year values.</p>`;
+                html += `<table><tr><th>Year</th><th>CPI Index</th></tr>`;
+                // Financial has cpi_data sub-object
+                const cpiData = data.cpi_data || data;
+                for (const [year, value] of Object.entries(cpiData)) {
+                    if (typeof value === 'object') continue;
+                    const label = year === '2022' ? `${year} (Base Year)` : year;
+                    html += `<tr><td>${this._htmlEscape(label)}</td><td class="numeric">${this._formatNum(value)}</td></tr>`;
+                }
+                html += `</table></div></div>`;
+                return html;
+            }
+
+            _renderValidationWeightingSection(data) {
+                let html = `<div class="category-section">`;
+                html += `<h3><span class="category-toggle"></span>Validation Levels</h3>`;
+                html += `<div class="category-content">`;
+                html += `<p class="note">Weighting applied to emission data based on evidence quality. Used to calculate weighted validation scores in audit reports.</p>`;
+                html += `<table><tr><th>Validation Level</th><th>Weight</th></tr>`;
+                for (const [level, weight] of Object.entries(data)) {
+                    if (typeof weight === 'object') continue;
+                    html += `<tr><td>${this._htmlEscape(level)}</td><td class="numeric">${this._formatNum(weight)}</td></tr>`;
+                }
+                html += `</table></div></div>`;
+                return html;
+            }
+
+            exportReferenceHTML() {
+                const categoryConfig = {
+                    fuels: { title: 'Scope 1 & 3: Fuels', badges: ['scope1', 'scope3'] },
+                    electricity: { title: 'Scope 2: Electricity', badges: ['scope2', 'scope3'] },
+                    packaging: { title: 'Scope 3: Packaging', badges: ['scope3'] },
+                    transport_methods: { title: 'Scope 3: Transport Methods', badges: ['scope3'] },
+                    travel: { title: 'Scope 3: Business Travel', badges: ['scope3'] },
+                    waste_types: { title: 'Scope 3: Waste', badges: ['scope3'] },
+                    resources: { title: 'Scope 3: Resources', badges: ['scope3'] },
+                    suppliers: { title: 'Scope 3: Suppliers (Spend-Based)', badges: ['scope3'] },
+                    financial: { title: 'Financial: CPI Data', badges: [] },
+                    data_validation_weighting: { title: 'Data Validation Weighting', badges: [] }
+                };
+
+                const badgeMap = {
+                    scope1: '<span class="badge badge-scope1">Scope 1</span>',
+                    scope2: '<span class="badge badge-scope2">Scope 2</span>',
+                    scope3: '<span class="badge badge-scope3">Scope 3</span>'
+                };
+
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                let html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BCAP Emission Factor Reference Data</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 1200px; margin: auto; color: #333; }
+        h1, h2, h3, h4, h5 { margin-top: 1.5em; margin-bottom: 0.5em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+        h1 { font-size: 2em; color: #222; }
+        h2 { font-size: 1.7em; color: #444; }
+        h3 { font-size: 1.4em; color: #555; }
+        h4 { font-size: 1.2em; color: #666; border-bottom: none; }
+        h5 { font-size: 1.05em; color: #777; border-bottom: none; margin-top: 0.8em; }
+        .scope-section, .category-section, .subcategory-section, .item-detail {
+            margin-bottom: 15px; padding-left: 15px; border-left: 3px solid #eee;
+        }
+        .scope-section { border-left-color: #007bff; }
+        .category-section { border-left-color: #28a745; }
+        .subcategory-section { border-left-color: #ffc107; }
+        .item-detail { border-left-color: #dc3545; padding: 10px; background-color: #f8f9fa; border-radius: 4px; margin-top: 8px; margin-bottom: 12px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 8px; margin-bottom: 12px; font-size: 0.92em; }
+        th, td { border: 1px solid #dee2e6; padding: 6px 10px; text-align: left; }
+        th { background-color: #e9ecef; font-weight: 600; color: #495057; white-space: nowrap; }
+        td { color: #333; }
+        td.numeric { text-align: right; font-family: monospace; }
+        tr:nth-child(even) { background-color: #f8f9fa; }
+        .meta { font-size: 0.85em; color: #6c757d; margin-top: 2px; }
+        .meta strong { color: #555; }
+        .source-link { word-break: break-all; font-size: 0.85em; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: 600; margin-left: 6px; }
+        .badge-scope1 { background-color: #cce5ff; color: #004085; }
+        .badge-scope2 { background-color: #d4edda; color: #155724; }
+        .badge-scope3 { background-color: #fff3cd; color: #856404; }
+        .note { font-style: italic; color: #6c757d; font-size: 0.9em; }
+        .controls { margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+        .control-btn { padding: 8px 15px; margin-right: 10px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 0.9em; }
+        .control-btn:hover { background-color: #0056b3; }
+        .scope-toggle, .category-toggle, .subcategory-toggle {
+            display: inline-block; cursor: pointer; margin-right: 8px; font-size: 0.9em; width: 1em; text-align: center;
+        }
+        .scope-toggle::before, .category-toggle::before, .subcategory-toggle::before { content: '\\25B6'; display: inline-block; }
+        h2.expanded > .scope-toggle::before, h3.expanded > .category-toggle::before, h4.expanded > .subcategory-toggle::before { content: '\\25BC'; }
+        .scope-content, .category-content, .subcategory-content { display: none; }
+        .header-info { margin-bottom: 1.5em; }
+        .header-info p { margin: 4px 0; }
+        @media print {
+            .controls { display: none; }
+            .scope-content, .category-content, .subcategory-content { display: block !important; }
+            .scope-section, .category-section, .subcategory-section { page-break-inside: avoid; }
+            body { padding: 10px; font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>BCAP Emission Factor Reference Data</h1>
+    <div class="header-info">
+        <p><strong>Generated:</strong> ${dateStr}</p>
+        <p><strong>Purpose:</strong> Reference document for all emission factors, conversion factors, and lookup data used in Carbon Halo BCAP emission calculations.</p>
+    </div>
+    <div class="controls">
+        <button id="expand-all-btn" class="control-btn">Expand All</button>
+        <button id="collapse-all-btn" class="control-btn">Collapse All</button>
+    </div>
+`;
+
+                // Render each category section
+                for (const doc of this.data) {
+                    const categoryKey = Object.keys(doc).find(k => k !== '_id' && k !== 'last_updated' && k !== 'version');
+                    if (!categoryKey) continue;
+
+                    const config = categoryConfig[categoryKey];
+                    if (!config) continue;
+
+                    const categoryData = doc[categoryKey];
+                    const badges = config.badges.map(b => badgeMap[b] || '').join('');
+
+                    html += `<div class="scope-section">`;
+                    html += `<h2><span class="scope-toggle"></span>${this._htmlEscape(config.title)} ${badges}</h2>`;
+                    html += `<div class="scope-content">`;
+
+                    switch (categoryKey) {
+                        case 'fuels': html += this._renderFuelsSection(categoryData); break;
+                        case 'electricity': html += this._renderElectricitySection(categoryData); break;
+                        case 'packaging': html += this._renderPackagingSection(categoryData); break;
+                        case 'transport_methods': html += this._renderTransportSection(categoryData); break;
+                        case 'travel': html += this._renderTravelSection(categoryData); break;
+                        case 'waste_types': html += this._renderWasteSection(categoryData); break;
+                        case 'resources': html += this._renderResourcesSection(categoryData); break;
+                        case 'suppliers': html += this._renderSuppliersSection(categoryData); break;
+                        case 'financial': html += this._renderFinancialSection(categoryData); break;
+                        case 'data_validation_weighting': html += this._renderValidationWeightingSection(categoryData); break;
+                    }
+
+                    html += `</div></div>`;
+                }
+
+                // Add JavaScript for toggle/expand/collapse
+                html += `
+    <script>
+        function setupToggle(headerSelector, contentSelector) {
+            document.querySelectorAll(headerSelector).forEach(header => {
+                header.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'A') return;
+                    this.classList.toggle('expanded');
+                    const content = this.nextElementSibling;
+                    if (content && content.matches(contentSelector)) {
+                        content.style.display = content.style.display === 'block' ? 'none' : 'block';
                     }
                 });
+                header.style.cursor = 'pointer';
+            });
+        }
+        setupToggle('.scope-section > h2', '.scope-content');
+        setupToggle('.category-section > h3', '.category-content');
+        setupToggle('.subcategory-section > h4', '.subcategory-content');
+
+        document.getElementById('expand-all-btn').addEventListener('click', function() {
+            document.querySelectorAll('.scope-content, .category-content, .subcategory-content').forEach(el => { el.style.display = 'block'; });
+            document.querySelectorAll('.scope-section > h2, .category-section > h3, .subcategory-section > h4').forEach(h => { h.classList.add('expanded'); });
+        });
+        document.getElementById('collapse-all-btn').addEventListener('click', function() {
+            document.querySelectorAll('.scope-content, .category-content, .subcategory-content').forEach(el => { el.style.display = 'none'; });
+            document.querySelectorAll('.scope-section > h2, .category-section > h3, .subcategory-section > h4').forEach(h => { h.classList.remove('expanded'); });
+        });
+    <\/script>
+</body>
+</html>`;
+
+                const blob = new Blob([html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'emission_data_reference.html';
+                a.click();
+                URL.revokeObjectURL(url);
+                this.showStatus('HTML reference exported successfully', 'success');
+            }
+
+            flattenData() {
+                const result = [];
+
+                this.data.forEach(doc => {
+                    const docId = doc._id && doc._id.$oid ? doc._id.$oid : '';
+
+                    Object.entries(doc).forEach(([category, categoryData]) => {
+                        if (category === '_id') return;
+                        if (typeof categoryData !== 'object' || categoryData === null) return;
+
+                        Object.entries(categoryData).forEach(([item, itemData]) => {
+                            if (typeof itemData === 'object' && itemData !== null && !Array.isArray(itemData)) {
+                                // Item is an object with fields
+                                Object.entries(itemData).forEach(([field, value]) => {
+                                    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                                        // Sub-item level (e.g., diesel.mobile, location_types.Factory)
+                                        Object.entries(value).forEach(([subField, subValue]) => {
+                                            result.push({
+                                                _id: docId,
+                                                category: category,
+                                                item: item,
+                                                sub_item: field,
+                                                field: subField,
+                                                value: subValue === null ? '' : subValue
+                                            });
+                                        });
+                                    } else {
+                                        // Direct field on item
+                                        result.push({
+                                            _id: docId,
+                                            category: category,
+                                            item: item,
+                                            sub_item: '',
+                                            field: field,
+                                            value: value === null ? '' : value
+                                        });
+                                    }
+                                });
+                            } else {
+                                // Direct value on category (e.g., data_validation_weighting)
+                                result.push({
+                                    _id: docId,
+                                    category: category,
+                                    item: item,
+                                    sub_item: '',
+                                    field: '',
+                                    value: itemData === null ? '' : itemData
+                                });
+                            }
+                        });
+                    });
+                });
+
+                return result;
             }
 
             showStatus(message, type) {

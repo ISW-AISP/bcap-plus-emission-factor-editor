@@ -1,6 +1,6 @@
 {
   "name": "carbon-halo-emission-editor",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Portable Carbon Halo emission data editor for BCAP+ with automatic history tracking",
   "main": "main.js",
   "homepage": "./",
@@ -15,6 +15,7 @@
     "build-linux-x64": "electron-builder --linux --x64",
     "build-linux-arm64": "electron-builder --linux --arm64",
     "dist": "electron-builder --publish=never",
+    "build-all": "electron-builder --mac --win --x64 --linux --x64",
     "version:patch": "node bump-version.js patch",
     "version:minor": "node bump-version.js minor",
     "version:major": "node bump-version.js major"
@@ -44,6 +45,7 @@
       "main.js",
       "preload.js",
       "index.html",
+      "assets/**/*",
       "node_modules/**/*"
     ],
     "mac": {
